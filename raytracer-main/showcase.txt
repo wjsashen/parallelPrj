@@ -1,0 +1,23 @@
+# Simple test scene for CUDA ray tracer
+
+eye  0 0 5
+imsize 512 512
+viewdir  0 0 -1
+updir  0 1 0
+vfov 60
+
+bkgcolor 0.7 0.7 0.7 1.0
+
+light 3 5 0 1 1
+
+# Green sphere on the left
+mtlcolor 0.2 1.0 0.2  1.0 1.0 1.0  0.2 0.6 0.3  100  1.0 1.5
+sphere -1.5 0 -6 1
+
+# Blue sphere on the right
+mtlcolor 0.2 0.2 1.0  1.0 1.0 1.0  0.2 0.6 0.3  100  1.0 1.5
+sphere 1.5 0 -6 1
+
+# Red sphere in the middle
+mtlcolor 1.0 0.2 0.2  1.0 1.0 1.0  0.2 0.6 0.3  100  1.0 1.5
+sphere 0 0 -8 1
