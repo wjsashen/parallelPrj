@@ -1,6 +1,6 @@
 # Compiler
 CXX = g++
-CXXFLAGS = -Wall -std=c++17
+CXXFLAGS = -Wall -std=c++11
 
 # Target executable (handle Windows vs. others)
 ifeq ($(OS),Windows_NT)
@@ -9,8 +9,8 @@ else
     TARGET = raytracer1d
 endif
 
-# Source files
-SRCS = raycast.cpp parse.cpp
+# Source files - use raycast_ssr.cpp instead of raycast.cpp
+SRCS = raycast_ssr.cpp parse.cpp
 OBJS = $(SRCS:.cpp=.o)
 
 # Build rules
@@ -32,3 +32,4 @@ else
 	rm -f $(OBJS) $(TARGET)
 endif
 
+.PHONY: all clean
