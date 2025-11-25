@@ -543,10 +543,19 @@ int main(int argc, char* argv[]) {
     CUDA_CHECK(cudaMemcpy(d_textures, h_textures.data(), 
                          h_textures.size() * sizeof(DeviceTexture), cudaMemcpyHostToDevice));
 
-    // Launch configuration
+        // Launch configuration
     dim3 blockSize(16, 16);
     dim3 gridSize((width + blockSize.x - 1) / blockSize.x,
                   (height + blockSize.y - 1) / blockSize.y);
+
+    std::cout << "Rendering " << width << "x" << height
+              << " image on GPU (2 passes with SSR)..." << std::endl;
+
+    // ---- GPU timing (similar style as raycast_cuda.cu) ----
+    cudaEvent_t start, stop;
+    CUDA_CHECK(cudaEventCreate(&start));
+    CUDA_CHECK(cudaEventCreate(&stop));
+    CUDA_CHECK(cudaEventRecord(start));
 
     std::cout << "Pass 1: Rendering base image..." << std::endl;
     raytrace_kernel<<<gridSize, blockSize>>>(
@@ -558,9 +567,8 @@ int main(int argc, char* argv[]) {
         scene.camera.eye, viewDir, scene.camera.upDir, scene.camera.vfov_rad(),
         ul, delta_h, delta_v,
         width, height, scene.bkgcolor,
-        false, 10
+        /*useSSR=*/false, /*maxDepth=*/10
     );
-    CUDA_CHECK(cudaDeviceSynchronize());
 
     std::cout << "Pass 2: Rendering with SSR..." << std::endl;
     raytrace_kernel<<<gridSize, blockSize>>>(
@@ -572,9 +580,22 @@ int main(int argc, char* argv[]) {
         scene.camera.eye, viewDir, scene.camera.upDir, scene.camera.vfov_rad(),
         ul, delta_h, delta_v,
         width, height, scene.bkgcolor,
-        true, 10
+        /*useSSR=*/true, /*maxDepth=*/10
     );
-    CUDA_CHECK(cudaDeviceSynchronize());
+
+    CUDA_CHECK(cudaEventRecord(stop));
+    CUDA_CHECK(cudaEventSynchronize(stop));
+
+    float milliseconds = 0.0f;
+    CUDA_CHECK(cudaEventElapsedTime(&milliseconds, start, stop));
+    std::cout << "GPU Rendering (2 passes) took "
+              << (milliseconds / 1000.0f) << " seconds" << std::endl;
+
+    CUDA_CHECK(cudaEventDestroy(start));
+    CUDA_CHECK(cudaEventDestroy(stop));
+
+    CUDA_CHECK(cudaGetLastError());
+
 
     // Copy result back to host
     CUDA_CHECK(cudaMemcpy(h_output, d_output, width * height * sizeof(Color), 

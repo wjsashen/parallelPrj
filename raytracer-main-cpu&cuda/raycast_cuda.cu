@@ -415,8 +415,18 @@ __global__ void renderKernel(DeviceColor* output, int width, int height,
 }
 
 bool isValidTxtFile(const std::string &filename) {
-    return filename.size() >= 4 && filename.substr(filename.size() - 4) == ".txt";
+    // Allow both .txt and .in extensions
+    if (filename.size() < 3) return false;
+
+    // Get extension from last dot
+    size_t dotPos = filename.find_last_of('.');
+    if (dotPos == std::string::npos) return false;
+
+    std::string ext = filename.substr(dotPos);  // includes the dot, e.g. ".txt"
+
+    return (ext == ".txt" || ext == ".in");
 }
+
 
 int main(int argc, char* argv[]) {
     Scene scene;

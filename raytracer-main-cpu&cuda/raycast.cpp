@@ -9,6 +9,13 @@
 #include <memory>
 #include <sstream>
 #include <vector>
+
+// Custom clamp function for C++11 compatibility
+template<typename T>
+T clamp(T value, T min_val, T max_val) {
+    return std::max(min_val, std::min(value, max_val));
+}
+
 std::vector<Vec3d> Objects::vertices;
 Vec2d calculateSphereUV(const Vec3d &normal) {
   float f = acos(normal.z);  // latitude angle
@@ -60,8 +67,8 @@ Color getTextureColor1(const Texture &texture, float u, float v) { //nn inter
   u = std::fmod(std::fmod(u, 1.0f) + 1.0f, 1.0f);
   v = std::fmod(std::fmod(v, 1.0f) + 1.0f, 1.0f);
 
-  int x = std::clamp(int(std::round(u * (texture.width - 1))), 0, texture.width - 1);
-  int y = std::clamp(int(std::round((1.0f - v) * (texture.height - 1))), 0, texture.height - 1);
+  int x = clamp(int(std::round(u * (texture.width - 1))), 0, texture.width - 1);
+  int y = clamp(int(std::round((1.0f - v) * (texture.height - 1))), 0, texture.height - 1);
 
   return texture.getPixel(x, y); 
 }
@@ -81,10 +88,10 @@ Color getTextureColorBilinear(const Texture &texture, float u, float v) {
   float x = u * texture.width - 0.5f;
   float y = v * texture.height - 0.5f;
 
-  int x0 = std::clamp(int(floor(x)), 0, texture.width - 1);
-  int x1 = std::clamp(x0 + 1, 0, texture.width - 1);
-  int y0 = std::clamp(int(floor(y)), 0, texture.height - 1);
-  int y1 = std::clamp(y0 + 1, 0, texture.height - 1);
+  int x0 = clamp(int(floor(x)), 0, texture.width - 1);
+  int x1 = clamp(x0 + 1, 0, texture.width - 1);
+  int y0 = clamp(int(floor(y)), 0, texture.height - 1);
+  int y1 = clamp(y0 + 1, 0, texture.height - 1);
 
   float tx = x - x0;
   float ty = y - y0;
@@ -205,7 +212,7 @@ bool isInShadow(const Vec3d& point, const Vec3d& L, const Scene& scene, Vec3d N)
       return false; //light reaches point
   }
 bool refract(const Vec3d &I, const Vec3d &N, float ior, Vec3d &refractedDir) {
-    float cosi = std::clamp(I.dot(N), -1.0f, 1.0f);
+    float cosi = clamp(I.dot(N), -1.0f, 1.0f);
     float float1 = 1;
     Vec3d n = N;
     if (cosi < 0) {
@@ -222,7 +229,7 @@ bool refract(const Vec3d &I, const Vec3d &N, float ior, Vec3d &refractedDir) {
     return true;
 }
 float frCal(const Vec3d &I, const Vec3d &N, float ior) {
-  float cosi = std::clamp(I.dot(N), -1.0f, 1.0f);
+  float cosi = clamp(I.dot(N), -1.0f, 1.0f);
   float float1 = 1.0f;
   if (cosi > 0) std::swap(float1, ior);
 
