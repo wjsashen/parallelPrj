@@ -1,35 +1,52 @@
-# Compiler
+# CPU compiler
 CXX = g++
 CXXFLAGS = -Wall -std=c++11
 
-# Target executable (handle Windows vs. others)
+# GPU compiler
+NVCC = nvcc
+NVCCFLAGS = -std=c++11
+
+# Target executable name (Windows vs. others)
 ifeq ($(OS),Windows_NT)
     TARGET = raytracer1d.exe
 else
     TARGET = raytracer1d
 endif
 
-# Source files - use raycast_ssr.cpp instead of raycast.cpp
+# CPU source files - use raycast_ssr.cpp instead of raycast.cpp
 SRCS = raycast_ssr.cpp parse.cpp
 OBJS = $(SRCS:.cpp=.o)
 
-# Build rules
+# Default target: build only the CPU version when running "make" with no arguments
 all: $(TARGET)
 
+# Link CPU executable from object files
 $(TARGET): $(OBJS)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(OBJS)
 
-# Pattern rule to compile .cpp to .o
+# Generic rule to compile .cpp to .o
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+# GPU target: "make raycast_cuda" builds raycast_cuda from raycast_cuda.cu and parse.cpp
+raycast_cuda: raycast_cuda.cu parse.cpp
+	$(NVCC) $(NVCCFLAGS) -o $@ raycast_cuda.cu parse.cpp
+
+# GPU target: "make raycast_ssr_cuda" builds raycast_ssr_cuda from raycast_ssr_cuda.cu and parse.cpp
+raycast_ssr_cuda: raycast_ssr_cuda.cu parse.cpp
+	$(NVCC) $(NVCCFLAGS) -o $@ raycast_ssr_cuda.cu parse.cpp
+
+# Test GPU target with BVH: "make raycast_ssr_cuda_bvh" builds raycast_ssr_cuda_bvh from raycast_ssr_cuda_bvh.cu and parse.cpp
+raycast_ssr_cuda_bvh: raycast_ssr_cuda_bvh.cu parse.cpp
+	$(NVCC) $(NVCCFLAGS) -o $@ raycast_ssr_cuda_bvh.cu parse.cpp
 
 # Cross-platform clean rule
 clean:
 	@echo "Cleaning up..."
 ifeq ($(OS),Windows_NT)
-	del /F /Q $(OBJS) $(TARGET) 2> nul || exit 0
+	del /F /Q $(OBJS) $(TARGET) raycast_cuda.exe raycast_ssr_cuda.exe 2> nul || exit 0
 else
-	rm -f $(OBJS) $(TARGET)
+	rm -f $(OBJS) $(TARGET) raycast_cuda raycast_ssr_cuda raycast_ssr_cuda_bvh
 endif
 
-.PHONY: all clean
+.PHONY: all clean raycast_cuda raycast_ssr_cuda
