@@ -40,6 +40,8 @@ raycast_ssr_cuda: raycast_ssr_cuda.cu parse.cpp
 raycast_ssr_cuda_bvh: raycast_ssr_cuda_bvh.cu parse.cpp
 	$(NVCC) $(NVCCFLAGS) -o $@ raycast_ssr_cuda_bvh.cu parse.cpp
 
+
+
 # Cross-platform clean rule
 clean:
 	@echo "Cleaning up..."
@@ -50,3 +52,5 @@ else
 endif
 
 .PHONY: all clean raycast_cuda raycast_ssr_cuda
+.PHONY: all_cuda
+all_cuda: clean raycast_cuda raycast_ssr_cuda raycast_ssr_cuda_bvh
