@@ -1,0 +1,139 @@
+#!/usr/bin/python
+import subprocess
+import csv
+import io
+import sys
+
+# Usage:
+# 1) To profile with generated scene file of increasing imsize:
+#    python profiling_tool.py
+# 2) To profile with specific scene files:
+#    python profiling_tool.py scene1.txt scene2.txt ...
+
+# Generates a scene at the specified dimensions
+
+executables = ["raycast_cuda", "raycast_ssr_cuda", "raycast_ssr_cuda_bvh"]
+
+def write_gen_file(filename, width, height):
+    template = """
+eye  0 0 5
+imsize {w} {h}
+viewdir  0 0 -1
+updir  0 1 0
+vfov 60
+
+bkgcolor 0.7 0.7 0.7 1
+
+light -3 15 10 1 1
+
+mtlcolor 0.2 1 0.2 1 1 1 0.2 0.6 0.0 100 1.0 1.0
+sphere -1.1 0 -4 1
+mtlcolor 0.2 0.2 1 1 1 1 0.2 0.6 0.0 100 1.0 1.0
+sphere 1.1 0 -4 1
+
+mtlcolor 1 0 0 1 1 1 0.02 0.06 0.2 100 0.2 1.5
+sphere 0 0 2 0.4
+"""
+    with open(filename, "w") as f:
+        f.write(template.format(w=width, h=height))
+
+metric_names = ["flop_count_sp", "flop_sp_efficiency",
+            "dram_utilization", "dram_read_bytes", "dram_write_bytes",
+           "achieved_occupancy", "sm_efficiency"]
+
+metrics_string = ""
+for m in metric_names:
+    metrics_string += "--metrics {} ".format(m)
+
+def profile(executable, input_file="gen.txt"):
+
+    cmd = "nvprof --csv --metrics flop_count_sp \
+        {} {} {}".format(metrics_string, executable, input_file)
+    
+    cmd2 = "{} {} | grep 'seconds' | sed -E -n 's/.*took ([0-9.]+) seconds/\\1/p'".format(executable, input_file)
+
+    # Run nvprof to get FLOP count. nvprof outputs to stderr
+    proc = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = proc.communicate()
+
+    # The timing w/ nvprof is slow so do another run to get an accurate time
+    proc2 = subprocess.Popen(cmd2, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out2, err2 = proc2.communicate()
+    time = float(out2.decode().strip())
+
+    # Parse CSV
+    reader = csv.reader(io.StringIO(err.decode()))
+
+    metrics = {}
+    for row in reader:
+        for m in metric_names:
+            if m in row:
+                metrics[m] = row[-1]
+
+
+    return metrics, time
+
+# Grab the image size from an input file
+def get_imsize_from_file(filename):
+    with open(filename, "r") as f:
+        for line in f:
+            if line.startswith("imsize"):
+                parts = line.split()
+                return int(parts[1]), int(parts[2])
+    return None, None
+
+
+if __name__ == "__main__":
+
+
+    # No arguments, generate input files of increasing size
+    if len(sys.argv) == 1:
+        data = [["Image Size"]]
+
+        for executable in executables:
+            data[0].append("{} FLOPS".format(executable))
+            for metric in metric_names:
+                data[0].append("{} {}".format(executable, metric))
+
+        for size in [256, 512, 1024]:
+            write_gen_file("gen.txt", size, size)
+            row = []
+            sys.stderr.write("Profiling image size {}x{}".format(size, size))
+            for executable in executables:
+                metrics, time = profile("./"+executable, "gen.txt")
+                row.append(float(metrics["flop_count_sp"]) / time)
+                for metric in metric_names:
+                    row.append(metrics[metric])
+                sys.stderr.write(".")
+            print(' done')
+            data.append([size*size] + row)
+
+    # 1> argument, profile specified input files
+    elif len(sys.argv) > 1:
+        data = [["filename", "image size"]]
+        for executable in executables:
+            data[0].append("{} FLOPS".format(executable))
+            for metric in metric_names:
+                data[0].append("{} {}".format(executable, metric))
+        for filename in sys.argv[1:]:
+            sys.stderr.write("Profiling {}".format(filename))
+            w, h = get_imsize_from_file(filename)
+            row = []
+            for executable in executables:
+                metrics, time = profile("./"+executable, "gen.txt")
+                row.append(float(metrics["flop_count_sp"]) / time)
+                for metric in metric_names:
+                    row.append(metrics[metric])
+                sys.stderr.write(".")
+            print(' done')
+            data.append([filename, w*h] + row)
+
+    outputfile = "profiling_results.csv"
+    with open(outputfile, "w") as file:
+        csv_writer = csv.writer(file)
+        csv_writer.writerows(data)
+    print("Profiling complete, results written to {}".format(outputfile))
+        
+
+
+
