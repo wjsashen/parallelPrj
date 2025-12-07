@@ -39,6 +39,13 @@ raycast_ssr_cuda: raycast_ssr_cuda.cu parse.cpp
 # Test GPU target with BVH: "make raycast_ssr_cuda_bvh" builds raycast_ssr_cuda_bvh from raycast_ssr_cuda_bvh.cu and parse.cpp
 raycast_ssr_cuda_bvh: raycast_ssr_cuda_bvh.cu parse.cpp
 	$(NVCC) $(NVCCFLAGS) -o $@ raycast_ssr_cuda_bvh.cu parse.cpp
+<<<<<<< Updated upstream
+=======
+#bin
+raycast_ssr_cuda_bvh_binned: raycast_ssr_cuda_bvh_binned.cu parse.cpp
+	$(NVCC) $(NVCCFLAGS) -o $@ raycast_ssr_cuda_bvh_binned.cu parse.cpp
+
+>>>>>>> Stashed changes
 
 # Cross-platform clean rule
 clean:
