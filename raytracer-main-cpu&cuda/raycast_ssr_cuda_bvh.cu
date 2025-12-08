@@ -27,6 +27,11 @@ std::vector<Vec3d> Objects::vertices;
     do { \
         cudaError_t err = call; \
         if (err != cudaSuccess) { \
+            FILE* logfile = fopen("cuda_error.log", "w"); \
+            if (logfile) { \
+                fprintf(logfile, "CUDA error in %s line %d: %s\n", __FILE__, __LINE__, cudaGetErrorString(err)); \
+                fclose(logfile); \
+            } \
             std::cerr << "CUDA error in " << __FILE__ << " line " << __LINE__ << ": " \
                       << cudaGetErrorString(err) << std::endl; \
             exit(EXIT_FAILURE); \
@@ -269,19 +274,20 @@ __device__ __forceinline__ bool intersectAABB(const CompactRay &ray, const Devic
 // WARP-SYNCHRONIZED BVH TRAVERSAL
 // All threads in warp traverse together, voting on which nodes to visit
 // ---------------------------
-__device__ bool intersectBVH_warpSync(const CompactRay &ray,
-                                      const DeviceBVHNode* __restrict__ nodes,
-                                      int numNodes,
-                                      const int* __restrict__ triIndices,
-                                      const DeviceTriangle* __restrict__ triangles,
-                                      float &closestT,
-                                      int &hitTriIndex,
-                                      Vec3d &hitNormal,
-                                      Vec2d &hitTexCoord) {
+// Simple BVH traversal 
+//BUGFIX if sync cause image black spot
+__device__ bool intersectBVH(const CompactRay &ray,
+                             const DeviceBVHNode* __restrict__ nodes,
+                             int numNodes,
+                             const int* __restrict__ triIndices,
+                             const DeviceTriangle* __restrict__ triangles,
+                             float &closestT,
+                             int &hitTriIndex,
+                             Vec3d &hitNormal,
+                             Vec2d &hitTexCoord) {
     if (!nodes || numNodes <= 0) return false;
 
-    // Shared stack for the warp - all threads use same traversal order
-    int stack[32];
+    int stack[64];
     int stackPtr = 0;
     stack[stackPtr++] = 0;
 
@@ -292,56 +298,37 @@ __device__ bool intersectBVH_warpSync(const CompactRay &ray,
         int nodeIdx = stack[--stackPtr];
         const DeviceBVHNode &node = nodes[nodeIdx];
 
-        // All threads test the same node
-        bool nodeHit = intersectAABB(ray, node.bounds, 0.001f, closestT);
-        
-        // Warp vote: if ANY thread hits this node, we must process it
-        unsigned int hitMask = __ballot_sync(0xFFFFFFFF, nodeHit);
-        
-        if (hitMask == 0) continue;  // No thread hit this node
+        if (!intersectAABB(ray, node.bounds, 0.001f, closestT))
+            continue;
 
         if (node.isLeaf) {
-            // Only threads that actually hit the AABB test triangles
-            if (nodeHit) {
-                for (int i = 0; i < node.count; ++i) {
-                    int triIdx = triIndices[node.start + i];
-                    float t;
-                    Vec3d n;
-                    Vec2d tc;
-                    if (intersectRayTriangle_device(ray, t, n, tc, triangles[triIdx]) &&
-                        t > 0.001f && t < closestT) {
-                        closestT = t;
-                        hitTriIndex = triIdx;
-                        hitNormal = n;
-                        hitTexCoord = tc;
-                        hit = true;
-                    }
+            for (int i = 0; i < node.count; ++i) {
+                int triIdx = triIndices[node.start + i];
+                float t;
+                Vec3d n;
+                Vec2d tc;
+                if (intersectRayTriangle_device(ray, t, n, tc, triangles[triIdx]) &&
+                    t > 0.001f && t < closestT) {
+                    closestT = t;
+                    hitTriIndex = triIdx;
+                    hitNormal = n;
+                    hitTexCoord = tc;
+                    hit = true;
                 }
             }
-            
-            // Synchronize closestT across warp for better pruning
-            for (int offset = 16; offset > 0; offset /= 2) {
-                float other = __shfl_down_sync(0xFFFFFFFF, closestT, offset);
-                closestT = fminf(closestT, other);
-            }
-            closestT = __shfl_sync(0xFFFFFFFF, closestT, 0);
-            
         } else {
-            // Push children - order by split axis for better coherence
-            if (stackPtr < 30) {
-                // Determine order based on ray direction and split
-                bool leftFirst = true;
-                if (node.splitAxis == 0) leftFirst = ray.dx > 0;
-                else if (node.splitAxis == 1) leftFirst = ray.dy > 0;
-                else leftFirst = ray.dz > 0;
-                
-                if (leftFirst) {
-                    if (node.right >= 0) stack[stackPtr++] = node.right;
-                    if (node.left >= 0) stack[stackPtr++] = node.left;
-                } else {
-                    if (node.left >= 0) stack[stackPtr++] = node.left;
-                    if (node.right >= 0) stack[stackPtr++] = node.right;
-                }
+            // Ordered traversal
+            bool leftFirst = true;
+            if (node.splitAxis == 0) leftFirst = ray.dx > 0;
+            else if (node.splitAxis == 1) leftFirst = ray.dy > 0;
+            else leftFirst = ray.dz > 0;
+            
+            if (leftFirst) {
+                if (node.right >= 0) stack[stackPtr++] = node.right;
+                if (node.left >= 0) stack[stackPtr++] = node.left;
+            } else {
+                if (node.left >= 0) stack[stackPtr++] = node.left;
+                if (node.right >= 0) stack[stackPtr++] = node.right;
             }
         }
     }
@@ -566,7 +553,7 @@ __global__ void raytrace_kernel_tiled(
     Vec3d triNormal;
     Vec2d triTexCoord;
 
-    bool triHit = intersectBVH_warpSync(ray, bvhNodes, numBVHNodes, bvhTriIndices, triangles,
+    bool triHit = intersectBVH(ray, bvhNodes, numBVHNodes, bvhTriIndices, triangles,
                                         tClosestTri, triHitIndex, triNormal, triTexCoord);
 
     // Find closest hit
