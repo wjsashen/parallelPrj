@@ -10,7 +10,7 @@
 #include <cmath>
 #include <limits>
 
-// ✅ Add this block to safely define std::make_unique for C++11
+//delete when using cpp14
 #if __cplusplus <= 201103L
 namespace std {
     template <typename T, typename... Args>
@@ -19,7 +19,7 @@ namespace std {
     }
 }
 #endif
-// ✅ End of C++11 fix
+
 
 bool isWhitespaceOnly(const std::string& str) { //for parse check
     return str.find_first_not_of(" \t\r\n") == std::string::npos;
