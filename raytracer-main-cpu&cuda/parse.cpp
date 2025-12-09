@@ -10,6 +10,17 @@
 #include <cmath>
 #include <limits>
 
+//delete when using cpp14
+#if __cplusplus <= 201103L
+namespace std {
+    template <typename T, typename... Args>
+    std::unique_ptr<T> make_unique(Args&&... args) {
+        return std::unique_ptr<T>(new T(std::forward<Args>(args)...));
+    }
+}
+#endif
+
+
 bool isWhitespaceOnly(const std::string& str) { //for parse check
     return str.find_first_not_of(" \t\r\n") == std::string::npos;
 }
