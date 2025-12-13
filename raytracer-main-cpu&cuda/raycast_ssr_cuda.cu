@@ -1,9 +1,16 @@
+#define _USE_MATH_DEFINES
+#include <cmath>
+#include <math.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #include "raycast_cuda.h"
 #include "parse.h"
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <algorithm>
-#include <cmath>
 #include <cfloat>
 #include <fstream>
 #include <iostream>
@@ -74,7 +81,7 @@ struct DeviceStorage{
 __device__ Vec2d calculateSphereUV_device(const Vec3d &normal) {
     float f = acosf(normal.z);
     float q = atan2f(normal.y, normal.x);
-    float u = (q >= 0) ? (q / (2 * M_PI)) : ((q + 2 * M_PI) / (2 * M_PI));
+    float u = (q >= 0) ? (q / (2.0f * M_PI)) : ((q + 2.0f * M_PI) / (2.0f * M_PI));
     float v = f / M_PI;
     return Vec2d(u, v);
 }
@@ -85,19 +92,19 @@ __device__ bool intersectRaySphere_device(const Ray &ray, const DeviceSphere &sp
     float r = sphere.radius;
 
     float a = ray.dx * ray.dx + ray.dy * ray.dy + ray.dz * ray.dz;
-    float b = 2 * (ray.dx * (ray.x - cx) + ray.dy * (ray.y - cy) + ray.dz * (ray.z - cz));
+    float b = 2.0f * (ray.dx * (ray.x - cx) + ray.dy * (ray.y - cy) + ray.dz * (ray.z - cz));
     float c = (ray.x - cx) * (ray.x - cx) + (ray.y - cy) * (ray.y - cy) + 
               (ray.z - cz) * (ray.z - cz) - r * r;
 
-    float d = b * b - 4 * a * c;
-    if (d < 0) return false;
+    float d = b * b - 4.0f * a * c;
+    if (d < 0.0f) return false;
 
-    float t1 = (-b - sqrtf(d)) / (2 * a);
-    float t2 = (-b + sqrtf(d)) / (2 * a);
+    float t1 = (-b - sqrtf(d)) / (2.0f * a);
+    float t2 = (-b + sqrtf(d)) / (2.0f * a);
 
-    if (t1 > 0) {
+    if (t1 > 0.0f) {
         t = t1;
-    } else if (t2 > 0) {
+    } else if (t2 > 0.0f) {
         t = t2;
     } else {
         return false;
@@ -121,7 +128,7 @@ __device__ bool intersectRayTriangle_device(const Ray &ray, float &t, Vec3d &nor
 
     float d = -cr.dot(triangle.v0);
     t = -(cr.dot(ray.getOrigin()) + d) / denominator;
-    if (t < 0) return false;
+    if (t < 0.0f) return false;
 
     Vec3d P = ray.getOrigin() + ray.getDirection() * t;
     Vec3d vP = P - triangle.v0;
@@ -130,7 +137,7 @@ __device__ bool intersectRayTriangle_device(const Ray &ray, float &t, Vec3d &nor
     float gamma = (edge1.dot(edge1) * vP.dot(edge2) - edge1.dot(edge2) * vP.dot(edge1)) / det;
     float alpha = 1.0f - beta - gamma;
 
-    if (alpha >= 0 && beta >= 0 && gamma >= 0) {
+    if (alpha >= 0.0f && beta >= 0.0f && gamma >= 0.0f) {
         if (triangle.isSmooth) {
             normalOut = (triangle.n0 * alpha) + (triangle.n1 * beta) + (triangle.n2 * gamma);
             normalOut = normalOut.norm();
@@ -162,17 +169,17 @@ __device__ Color getTextureColor_device(const DeviceTexture &texture, float u, f
     int y0 = clamp_cuda((int)floorf(y), 0, texture.height - 1);
     int y1 = clamp_cuda(y0 + 1, 0, texture.height - 1);
 
-    float tx = x - x0;
-    float ty = y - y0;
+    float tx = x - (float)x0;
+    float ty = y - (float)y0;
 
     Color c00 = texture.pixels[y0 * texture.width + x0];
     Color c10 = texture.pixels[y0 * texture.width + x1];
     Color c01 = texture.pixels[y1 * texture.width + x0];
     Color c11 = texture.pixels[y1 * texture.width + x1];
 
-    Color cx0 = c00 * (1 - tx) + c10 * tx;
-    Color cx1 = c01 * (1 - tx) + c11 * tx;
-    return cx0 * (1 - ty) + cx1 * ty;
+    Color cx0 = c00 * (1.0f - tx) + c10 * tx;
+    Color cx1 = c01 * (1.0f - tx) + c11 * tx;
+    return cx0 * (1.0f - ty) + cx1 * ty;
 }
 
 __device__ bool refract_device(const Vec3d &I, const Vec3d &N, float ior, Vec3d &refractedDir) {
@@ -181,18 +188,18 @@ __device__ bool refract_device(const Vec3d &I, const Vec3d &N, float ior, Vec3d 
     float etat = ior;
     Vec3d n = N;
     
-    if (cosi < 0) {
+    if (cosi < 0.0f) {
         cosi = -cosi;
     } else {
         float temp = etai;
         etai = etat;
         etat = temp;
-        n = N * -1;
+        n = N * -1.0f;
     }
 
     float eta = etai / etat;
-    float k = 1 - eta * eta * (1 - cosi * cosi);
-    if (k < 0) return false;
+    float k = 1.0f - eta * eta * (1.0f - cosi * cosi);
+    if (k < 0.0f) return false;
     
     refractedDir = (I * eta + n * (eta * cosi - sqrtf(k))).norm();
     return true;
@@ -203,7 +210,7 @@ __device__ float fresnelSchlick_device(const Vec3d &I, const Vec3d &N, float ior
     float etai = 1.0f;
     float etat = ior;
     
-    if (cosi > 0) {
+    if (cosi > 0.0f) {
         float temp = etai;
         etai = etat;
         etat = temp;
@@ -211,7 +218,7 @@ __device__ float fresnelSchlick_device(const Vec3d &I, const Vec3d &N, float ior
 
     float r0 = (etai - etat) / (etai + etat);
     float f0 = r0 * r0;
-    return f0 + (1 - f0) * powf(1 - fabsf(cosi), 5);
+    return f0 + (1.0f - f0) * powf(1.0f - fabsf(cosi), 5.0f);
 }
 
 __device__ float computeShadowFactor_device(const Vec3d &point, const Vec3d &lightDir, 
@@ -240,10 +247,10 @@ __device__ bool projectToScreen_device(const Vec3d &point, const Vec3d &eyePos,
     Vec3d toPoint = point - eyePos;
     float distance = toPoint.dot(viewDir);
     
-    if (distance <= 0) return false;
+    if (distance <= 0.0f) return false;
     
-    double ar = (double)width / height;
-    double vh = 2.0 * tanf(vfov / 2);
+    double ar = (double)width / (double)height;
+    double vh = 2.0 * tanf(vfov / 2.0f);
     double vw = vh * ar;
     
     float u = toPoint.dot(right) / distance;
@@ -256,23 +263,34 @@ __device__ bool projectToScreen_device(const Vec3d &point, const Vec3d &eyePos,
 }
 
 __device__ Color getSSRColor_device(const Vec3d &reflectDir, const Vec3d &hitPoint,
-                                    Color* imageBuffer, int width, int height,
+                                    Color* imageBuffer, float* depthBuffer,
+                                    int width, int height,
                                     const Vec3d &eyePos, const Vec3d &viewDir, 
                                     const Vec3d &upDir, float vfov,
                                     const Color &bkgcolor) {
-    const int MAX_STEPS = 50;
-    const float STEP_SIZE = 0.1f;
+    const int MAX_STEPS = 100;
+    const float STEP_SIZE = 0.05f;
+    const float DEPTH_THRESHOLD = 0.02f;
     
-    Vec3d currentPos = hitPoint;
+    Vec3d currentPos = hitPoint + reflectDir * STEP_SIZE;
+    float prevDepth = (currentPos - eyePos).dot(viewDir);
     
     for (int i = 0; i < MAX_STEPS; i++) {
         currentPos = currentPos + reflectDir * STEP_SIZE;
+        float currentDepth = (currentPos - eyePos).dot(viewDir);
         
         int screenX, screenY;
         if (projectToScreen_device(currentPos, eyePos, viewDir, upDir, vfov, 
                                    width, height, screenX, screenY)) {
             if (screenX >= 0 && screenX < width && screenY >= 0 && screenY < height) {
-                return imageBuffer[screenY * width + screenX];
+                int idx = screenY * width + screenX;
+                float bufferDepth = depthBuffer[idx];
+                
+                // Check if ray crossed from in front to behind geometry
+                if (currentDepth > bufferDepth && prevDepth <= bufferDepth + DEPTH_THRESHOLD) {
+                    return imageBuffer[idx];
+                }
+                prevDepth = currentDepth;
             }
         } else {
             break;
@@ -294,7 +312,7 @@ __device__ Color shade_device(const Vec3d &point, const Vec3d &rayDir, const Vec
         texturec = getTextureColor_device(texture, texCoord.x, texCoord.y);
     }
 
-    Vec3d viewDir = (rayDir * -1).norm();
+    Vec3d viewDir = (rayDir * -1.0f).norm();
     Color ambient = texturec * material.ka;
     Color totalDiffuse(0, 0, 0);
     Color totalSpecular(0, 0, 0);
@@ -302,7 +320,7 @@ __device__ Color shade_device(const Vec3d &point, const Vec3d &rayDir, const Vec
     for (int i = 0; i < numLights; i++) {
         Vec3d L = lights[i].isPoint ? 
                   (lights[i].positionOrdir - point).norm() : 
-                  lights[i].positionOrdir.norm() * -1;
+                  lights[i].positionOrdir.norm() * -1.0f;
         
         Vec3d H = (L + viewDir).norm();
         float df = fmaxf(normal.dot(L), 0.0f);
@@ -320,7 +338,7 @@ __device__ Color shade_device(const Vec3d &point, const Vec3d &rayDir, const Vec
     return ambient + totalDiffuse + totalSpecular;
 }
 
-__global__ void raytrace_kernel(Color* output, Color* imageBuffer,
+__global__ void raytrace_kernel(Color* output, Color* imageBuffer, float* depthBuffer,
                                 DeviceSphere* spheres, int numSpheres,
                                 DeviceTriangle* triangles, int numTriangles,
                                 DeviceLight* lights, int numLights,
@@ -342,7 +360,7 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
     Ray ray(eyePos, rayDir);
     
     // Find closest intersection
-    float t_min = 1e30f; // Use large constant instead of FLT_MAX
+    float t_min = 1e30f;
     int hitType = -1; // -1: none, 0: sphere, 1: triangle
     int hitIndex = -1;
     Vec3d hitNormal;
@@ -378,9 +396,12 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
     
     // Default to background
     Color finalColor = bkgcolor;
+    float depth = 1e30f;
     
     if (hitType >= 0) {
         Vec3d hitPoint = eyePos + rayDir * t_min;
+        depth = (hitPoint - eyePos).dot(viewDir);
+        
         MaterialColor material;
         DeviceTexture texture;
         bool hasTexture = false;
@@ -414,7 +435,6 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
         if (material.alpha < 1.0f) {
             Vec3d refractDir;
             if (refract_device(rayDir, hitNormal, material.ior, refractDir)) {
-                // Simple refraction without full recursion
                 refractedColor = bkgcolor; // Simplified
             }
         }
@@ -426,6 +446,11 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
     }
     
     output[idx] = finalColor;
+    
+    // Write depth if requested (for first pass)
+    if (writeDepth && depthBuffer != nullptr) {
+        depthBuffer[idx] = depth;
+    }
 }
 
 __global__ void ssr_kernel(Color* output, Color* imageBuffer,
@@ -482,7 +507,6 @@ int main(int argc, char* argv[]) {
 
     // Allocate host memory
     Color* h_output = new Color[width * height];
-    Color* h_imageBuffer = new Color[width * height];
     
     // Prepare device data
     std::vector<DeviceSphere> h_spheres;
@@ -500,7 +524,6 @@ int main(int argc, char* argv[]) {
             ds.hasTexture = sphere->hasTexture;
             h_spheres.push_back(ds);
             
-            // Handle texture (simplified - would need proper GPU texture upload)
             DeviceTexture dt;
             dt.pixels = nullptr;
             dt.width = 0;
@@ -522,6 +545,12 @@ int main(int argc, char* argv[]) {
             dt.isSmooth = triangle->isSmooth;
             dt.hasTexture = triangle->hasTexture;
             h_triangles.push_back(dt);
+            
+            DeviceTexture dt_tex;
+            dt_tex.pixels = nullptr;
+            dt_tex.width = 0;
+            dt_tex.height = 0;
+            h_textures.push_back(dt_tex);
         }
     }
     
@@ -534,8 +563,8 @@ int main(int argc, char* argv[]) {
     }
 
     // Calculate view parameters
-    double ar = (double)width / height;
-    double vh = 2.0 * tan(scene.camera.vfov_rad() / 2);
+    double ar = (double)width / (double)height;
+    double vh = 2.0 * tan(scene.camera.vfov_rad() / 2.0);
     double vw = vh * ar;
     Vec3d viewDir = scene.camera.viewDir.norm();
     Vec3d right = viewDir.cross(scene.camera.upDir).norm();
@@ -544,8 +573,8 @@ int main(int argc, char* argv[]) {
     Vec3d ul = center - right * (vw * 0.5) + up * (vh * 0.5);
     Vec3d ur = center + right * (vw * 0.5) + up * (vh * 0.5);
     Vec3d ll = center - right * (vw * 0.5) - up * (vh * 0.5);
-    Vec3d delta_h = (ur - ul) / width;
-    Vec3d delta_v = (ll - ul) / height;
+    Vec3d delta_h = (ur - ul) / (double)width;
+    Vec3d delta_v = (ll - ul) / (double)height;
 
     // Allocate device memory
     Color *d_output, *d_imageBuffer;
@@ -558,15 +587,29 @@ int main(int argc, char* argv[]) {
     CUDA_CHECK(cudaMalloc(&d_imageBuffer, width * height * sizeof(Color)));
     CUDA_CHECK(cudaMalloc(&d_depthBuffer, width * height * sizeof(float)));
     
-    // Copy data to device
-    CUDA_CHECK(cudaMemcpy(d_spheres, h_spheres.data(), 
-                         h_spheres.size() * sizeof(DeviceSphere), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_triangles, h_triangles.data(), 
-                         h_triangles.size() * sizeof(DeviceTriangle), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_lights, h_lights.data(), 
-                         h_lights.size() * sizeof(DeviceLight), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_textures, h_textures.data(), 
-                         h_textures.size() * sizeof(DeviceTexture), cudaMemcpyHostToDevice));
+    if (h_spheres.size() > 0) {
+        CUDA_CHECK(cudaMalloc(&d_spheres, h_spheres.size() * sizeof(DeviceSphere)));
+        CUDA_CHECK(cudaMemcpy(d_spheres, h_spheres.data(), 
+                             h_spheres.size() * sizeof(DeviceSphere), cudaMemcpyHostToDevice));
+    }
+    
+    if (h_triangles.size() > 0) {
+        CUDA_CHECK(cudaMalloc(&d_triangles, h_triangles.size() * sizeof(DeviceTriangle)));
+        CUDA_CHECK(cudaMemcpy(d_triangles, h_triangles.data(), 
+                             h_triangles.size() * sizeof(DeviceTriangle), cudaMemcpyHostToDevice));
+    }
+    
+    if (h_lights.size() > 0) {
+        CUDA_CHECK(cudaMalloc(&d_lights, h_lights.size() * sizeof(DeviceLight)));
+        CUDA_CHECK(cudaMemcpy(d_lights, h_lights.data(), 
+                             h_lights.size() * sizeof(DeviceLight), cudaMemcpyHostToDevice));
+    }
+    
+    if (h_textures.size() > 0) {
+        CUDA_CHECK(cudaMalloc(&d_textures, h_textures.size() * sizeof(DeviceTexture)));
+        CUDA_CHECK(cudaMemcpy(d_textures, h_textures.data(), 
+                             h_textures.size() * sizeof(DeviceTexture), cudaMemcpyHostToDevice));
+    }
 
         // Launch configuration
     dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
@@ -576,24 +619,27 @@ int main(int argc, char* argv[]) {
     std::cout << "Rendering " << width << "x" << height
               << " image on GPU (2 passes with SSR)..." << std::endl;
 
-    // ---- GPU timing (similar style as raycast_cuda.cu) ----
+    // GPU timing
     cudaEvent_t start, stop;
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
     CUDA_CHECK(cudaEventRecord(start));
 
-    std::cout << "Pass 1: Rendering base image..." << std::endl;
+    // Pass 1: Render base image AND write depth buffer
+    std::cout << "Pass 1: Rendering base image with depth..." << std::endl;
     raytrace_kernel<<<gridSize, blockSize>>>(
-        d_imageBuffer, nullptr,
-        d_spheres, h_spheres.size(),
-        d_triangles, h_triangles.size(),
-        d_lights, h_lights.size(),
+        d_imageBuffer, nullptr, d_depthBuffer,
+        d_spheres, (int)h_spheres.size(),
+        d_triangles, (int)h_triangles.size(),
+        d_lights, (int)h_lights.size(),
         d_textures,
         scene.camera.eye, viewDir, scene.camera.upDir, scene.camera.vfov_rad(),
         ul, delta_h, delta_v,
         width, height, scene.bkgcolor,
         /*useSSR=*/false, /*maxDepth=*/10, d_ssr_indices, d_ssr_count, d_storage
     );
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     // Get back the number of active rays to optimize the grid size of the SSR
     
@@ -610,6 +656,8 @@ int main(int argc, char* argv[]) {
         width, height, scene.bkgcolor,
         true, false
     );
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
 
     CUDA_CHECK(cudaEventRecord(stop));
     CUDA_CHECK(cudaEventSynchronize(stop));
@@ -621,9 +669,6 @@ int main(int argc, char* argv[]) {
 
     CUDA_CHECK(cudaEventDestroy(start));
     CUDA_CHECK(cudaEventDestroy(stop));
-
-    CUDA_CHECK(cudaGetLastError());
-
 
     // Copy result back to host
     CUDA_CHECK(cudaMemcpy(h_output, d_output, width * height * sizeof(Color), 
@@ -637,9 +682,10 @@ int main(int argc, char* argv[]) {
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             Color c = h_output[y * width + x];
-            output << (int)(c.r * 255) << " " 
-                   << (int)(c.g * 255) << " " 
-                   << (int)(c.b * 255) << " ";
+            int ir = (int)clamp_cuda(c.r * 255.0f, 0.0f, 255.0f);
+            int ig = (int)clamp_cuda(c.g * 255.0f, 0.0f, 255.0f);
+            int ib = (int)clamp_cuda(c.b * 255.0f, 0.0f, 255.0f);
+            output << ir << " " << ig << " " << ib << " ";
         }
         output << "\n";
     }
@@ -647,7 +693,6 @@ int main(int argc, char* argv[]) {
 
     // Cleanup
     delete[] h_output;
-    delete[] h_imageBuffer;
     CUDA_CHECK(cudaFree(d_output));
     CUDA_CHECK(cudaFree(d_imageBuffer));
     CUDA_CHECK(cudaFree(d_depthBuffer));
