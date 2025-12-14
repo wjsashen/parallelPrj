@@ -467,7 +467,9 @@ Color trace(int x, int y, Vec3d ul, Vec3d delta_h, Vec3d delta_v, Scene &scene) 
 
 
 bool isValidTxtFile(const std::string &filename) { // check file format
-  return filename.size() >= 4 && filename.substr(filename.size() - 4) == ".txt";
+  return filename.size() >= 3 &&
+           (filename.substr(filename.size() - 4) == ".txt" ||
+            filename.substr(filename.size() - 3) == ".in");
 }
 
 int main(int argc, char* argv[]) {
