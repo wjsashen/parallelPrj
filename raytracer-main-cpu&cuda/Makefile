@@ -40,6 +40,17 @@ raycast_ssr_cuda: raycast_ssr_cuda.cu parse.cpp
 raycast_ssr_cuda_bvh: raycast_ssr_cuda_bvh.cu parse.cpp
 	$(NVCC) $(NVCCFLAGS) -o $@ raycast_ssr_cuda_bvh.cu parse.cpp
 
+#shared memory
+raycast_ssr_cuda_bvh_sharedMem: raycast_ssr_cuda_bvh_sharedMem.cu parse.cpp
+	$(NVCC) $(NVCCFLAGS) -o $@ raycast_ssr_cuda_bvh_sharedMem.cu parse.cpp
+#bin
+raycast_ssr_cuda_bvh_binned: raycast_ssr_cuda_bvh_binned.cu parse.cpp
+	$(NVCC) $(NVCCFLAGS) -o $@ raycast_ssr_cuda_bvh_binned.cu parse.cpp
+
+
+
+
+
 
 
 # Cross-platform clean rule
@@ -53,4 +64,4 @@ endif
 
 .PHONY: all clean raycast_cuda raycast_ssr_cuda
 .PHONY: all_cuda
-all_cuda: clean raycast_cuda raycast_ssr_cuda raycast_ssr_cuda_bvh
+all_cuda: clean raycast_cuda raycast_ssr_cuda raycast_ssr_cuda_bvh raycast_ssr_cuda_bvh_binned raycast_ssr_cuda_bvh_sharedMem
