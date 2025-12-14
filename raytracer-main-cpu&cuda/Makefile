@@ -39,13 +39,17 @@ raycast_ssr_cuda: raycast_ssr_cuda.cu parse.cpp
 # Test GPU target with BVH: "make raycast_ssr_cuda_bvh" builds raycast_ssr_cuda_bvh from raycast_ssr_cuda_bvh.cu and parse.cpp
 raycast_ssr_cuda_bvh: raycast_ssr_cuda_bvh.cu parse.cpp
 	$(NVCC) $(NVCCFLAGS) -o $@ raycast_ssr_cuda_bvh.cu parse.cpp
-<<<<<<< Updated upstream
-=======
+
+#shared memory
+raycast_ssr_cuda_bvh_sharedMem: raycast_ssr_cuda_bvh_sharedMem.cu parse.cpp
+	$(NVCC) $(NVCCFLAGS) -o $@ raycast_ssr_cuda_bvh_sharedMem.cu parse.cpp
 #bin
 raycast_ssr_cuda_bvh_binned: raycast_ssr_cuda_bvh_binned.cu parse.cpp
 	$(NVCC) $(NVCCFLAGS) -o $@ raycast_ssr_cuda_bvh_binned.cu parse.cpp
 
->>>>>>> Stashed changes
+
+
+
 
 
 
@@ -55,9 +59,9 @@ clean:
 ifeq ($(OS),Windows_NT)
 	del /F /Q $(OBJS) $(TARGET) raycast_cuda.exe raycast_ssr_cuda.exe 2> nul || exit 0
 else
-	rm -f $(OBJS) $(TARGET) raycast_cuda raycast_ssr_cuda raycast_ssr_cuda_bvh
+	rm -f $(OBJS) $(TARGET) raycast_cuda raycast_ssr_cuda raycast_ssr_cuda_bvh raycast_ssr_cuda_bvh_binned raycast_ssr_cuda_bvh_sharedMem
 endif
 
 .PHONY: all clean raycast_cuda raycast_ssr_cuda
 .PHONY: all_cuda
-all_cuda: clean raycast_cuda raycast_ssr_cuda raycast_ssr_cuda_bvh
+all_cuda: clean raycast_cuda raycast_ssr_cuda raycast_ssr_cuda_bvh raycast_ssr_cuda_bvh_binned raycast_ssr_cuda_bvh_sharedMem
