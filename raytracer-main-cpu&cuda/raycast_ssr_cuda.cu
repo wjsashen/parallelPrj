@@ -328,8 +328,7 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
                                 Vec3d eyePos, Vec3d viewDir, Vec3d upDir, float vfov,
                                 Vec3d ul, Vec3d delta_h, Vec3d delta_v,
                                 int width, int height, Color bkgcolor,
-                                bool useSSR, int maxDepth, int* ssr_indices, int* ssr_count,
-                                DeviceStorage* storage) {
+                                bool useSSR, bool writeDepth) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     
@@ -402,14 +401,12 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
                                        texture, hasTexture, bkgcolor);
         float Fr = 0.0f;
         // Reflection
-        if (material.ks > 0) {
-            Vec3d reflectDir = rayDir - hitNormal * 2.0f * rayDir.dot(hitNormal);
-            Fr = fresnelSchlick_device(rayDir, hitNormal, material.ior);
-            int pos = atomicAdd(ssr_count, 1);
-            ssr_indices[pos] = idx;
-            storage[pos].Fr = Fr;
-            storage[pos].reflectDir = reflectDir;
-            storage[pos].hitPoint = hitPoint;
+        Color reflectedColor(0, 0, 0);
+        if (material.ks > 0.0f && useSSR && depthBuffer != nullptr) {
+            Vec3d reflectDir = (rayDir - hitNormal * 2.0f * (rayDir.dot(hitNormal))).norm();
+            reflectedColor = getSSRColor_device(reflectDir, hitPoint, imageBuffer, depthBuffer,
+                                               width, height, eyePos, viewDir, upDir, 
+                                               vfov, bkgcolor);
         }
         
         // Simple refraction (single level)
@@ -425,7 +422,7 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
         Fr = fresnelSchlick_device(rayDir, hitNormal, material.ior);
         float Ft = 1 - Fr;
         
-        finalColor = localColor + refractedColor * (1 - material.alpha) * Ft;
+        finalColor = localColor + reflectedColor * Fr + refractedColor * (1.0f - material.alpha) * Ft;
     }
     
     output[idx] = finalColor;
@@ -552,25 +549,14 @@ int main(int argc, char* argv[]) {
 
     // Allocate device memory
     Color *d_output, *d_imageBuffer;
-    DeviceSphere* d_spheres;
-    DeviceTriangle* d_triangles;
-    DeviceLight* d_lights;
-    DeviceTexture* d_textures;
-    DeviceStorage* d_storage;
-    int* d_ssr_indices;
-    int* d_ssr_count;
-    int active_rays = 0;
-    
+    float *d_depthBuffer;
+    DeviceSphere* d_spheres = nullptr;
+    DeviceTriangle* d_triangles = nullptr;
+    DeviceLight* d_lights = nullptr;
+    DeviceTexture* d_textures = nullptr;
     CUDA_CHECK(cudaMalloc(&d_output, width * height * sizeof(Color)));
     CUDA_CHECK(cudaMalloc(&d_imageBuffer, width * height * sizeof(Color)));
-    CUDA_CHECK(cudaMalloc(&d_spheres, h_spheres.size() * sizeof(DeviceSphere)));
-    CUDA_CHECK(cudaMalloc(&d_triangles, h_triangles.size() * sizeof(DeviceTriangle)));
-    CUDA_CHECK(cudaMalloc(&d_lights, h_lights.size() * sizeof(DeviceLight)));
-    CUDA_CHECK(cudaMalloc(&d_textures, h_textures.size() * sizeof(DeviceTexture)));
-    CUDA_CHECK(cudaMalloc(&d_ssr_indices, width * height * sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_ssr_count, sizeof(int)));
-    CUDA_CHECK(cudaMalloc(&d_storage, width * height * sizeof(DeviceStorage)));
-    CUDA_CHECK(cudaMemset(d_ssr_count, 0, sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&d_depthBuffer, width * height * sizeof(float)));
     
     // Copy data to device
     CUDA_CHECK(cudaMemcpy(d_spheres, h_spheres.data(), 
@@ -610,21 +596,19 @@ int main(int argc, char* argv[]) {
     );
 
     // Get back the number of active rays to optimize the grid size of the SSR
-    CUDA_CHECK(cudaMemcpy(&active_rays, d_ssr_count, sizeof(int), cudaMemcpyDeviceToHost));
+    
 
-    dim3 block(128);
-    dim3 grid((active_rays + blockSize.x - 1) / blockSize.x);
-
-    std::cout << "Pass 2: Rendering with SSR..." << std::endl;
-    ssr_kernel<<<grid, block>>>(d_output, d_imageBuffer,
-        d_spheres, h_spheres.size(),
-        d_triangles, h_triangles.size(),
-        d_lights, h_lights.size(),
+    std::cout << "Pass 2: Rendering with SSR depth..." << std::endl;
+    raytrace_kernel<<<gridSize, blockSize>>>(
+        d_output, d_imageBuffer, d_depthBuffer,
+        d_spheres, (int)h_spheres.size(),
+        d_triangles, (int)h_triangles.size(),
+        d_lights, (int)h_lights.size(),
         d_textures,
         scene.camera.eye, viewDir, scene.camera.upDir, scene.camera.vfov_rad(),
         ul, delta_h, delta_v,
         width, height, scene.bkgcolor,
-        /*maxDepth=*/10, d_ssr_indices, d_ssr_count, d_storage
+        true, false
     );
 
     CUDA_CHECK(cudaEventRecord(stop));
@@ -666,13 +650,11 @@ int main(int argc, char* argv[]) {
     delete[] h_imageBuffer;
     CUDA_CHECK(cudaFree(d_output));
     CUDA_CHECK(cudaFree(d_imageBuffer));
-    CUDA_CHECK(cudaFree(d_spheres));
-    CUDA_CHECK(cudaFree(d_triangles));
-    CUDA_CHECK(cudaFree(d_lights));
-    CUDA_CHECK(cudaFree(d_textures));
-    CUDA_CHECK(cudaFree(d_ssr_indices));
-    CUDA_CHECK(cudaFree(d_ssr_count));
-    CUDA_CHECK(cudaFree(d_storage));
+    CUDA_CHECK(cudaFree(d_depthBuffer));
+    if (d_spheres) CUDA_CHECK(cudaFree(d_spheres));
+    if (d_triangles) CUDA_CHECK(cudaFree(d_triangles));
+    if (d_lights) CUDA_CHECK(cudaFree(d_lights));
+    if (d_textures) CUDA_CHECK(cudaFree(d_textures));
 
     std::cout << "Rendering complete. Image saved as '" << perspective_filename << "'." << std::endl;
     return 0;
