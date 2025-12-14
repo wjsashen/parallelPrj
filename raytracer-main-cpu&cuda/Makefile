@@ -51,8 +51,6 @@ raycast_ssr_cuda_bvh_binned: raycast_ssr_cuda_bvh_binned.cu parse.cpp
 
 
 
-
-
 # Cross-platform clean rule
 clean:
 	@echo "Cleaning up..."
