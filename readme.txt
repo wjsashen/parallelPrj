@@ -1,10 +1,8 @@
 readme.txt
 
-compile with make for cpu code
+compile with Makefile
 
-./raytracer1d example1.txt
-
-
+./raycast_xxx example1.txt/.in
 
 for gpu code needing rtx:
 Compile: nvcc -O3 -lineinfo -gencode arch=compute_90,code=sm_120 raycast_ssr_cuda_bvh_binned.cu parse.cpp -o app_v1 -std=c++14 -D_USE_MATH_DEFINES
@@ -18,5 +16,8 @@ namespace std {
 }
 #endif
 
-Profile ncu --set full --target-processes all -o v1_report ./app_v1 bunny.in
+Profile with ncu/nsys command: ncu --set full --target-processes all -o v1_report ./app_v1 bunny.in
+nv-nsight-cu-cli ./raycast_ssr_cuda_bvh dragon.in
+
+Profile with Python tool:
 
