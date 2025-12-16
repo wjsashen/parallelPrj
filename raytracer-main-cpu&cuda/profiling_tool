@@ -12,7 +12,7 @@ import sys
 
 # Generates a scene at the specified dimensions
 
-executables = ["raycast_cuda", "raycast_ssr_cuda", "raycast_ssr_cuda_bvh"]
+executables = ["raycast_cuda", "raycast_ssr_cuda", "raycast_ssr_cuda_bvh", "raycast_ssr_cuda_bvh_binned", "raycast_ssr_cuda_bvh_sharedMem"]
 
 def write_gen_file(filename, width, height):
     template = """
@@ -39,7 +39,7 @@ sphere 0 0 2 0.4
 
 metric_names = ["flop_count_sp", "flop_sp_efficiency",
             "dram_utilization", "dram_read_bytes", "dram_write_bytes",
-           "achieved_occupancy", "sm_efficiency"]
+           "achieved_occupancy", "sm_efficiency", "branch_efficiency"]
 
 metrics_string = ""
 for m in metric_names:
