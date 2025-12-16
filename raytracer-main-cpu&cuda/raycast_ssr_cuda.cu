@@ -12,6 +12,11 @@
 #include <sstream>
 #include <vector>
 
+// Define Block Size for CUDA kernel launch
+#ifndef BLOCK_SIZE
+#define BLOCK_SIZE 16
+#endif
+
 std::vector<Vec3d> Objects::vertices;
 
 // CUDA error checking macro
@@ -63,11 +68,6 @@ struct DeviceTexture {
     Color* pixels;
     int width;
     int height;
-};
-
-struct DeviceStorage{
-    Vec3d  reflectDir, hitPoint;
-    float Fr;
 };
 
 // Device functions
@@ -215,7 +215,7 @@ __device__ float fresnelSchlick_device(const Vec3d &I, const Vec3d &N, float ior
 }
 
 __device__ float computeShadowFactor_device(const Vec3d &point, const Vec3d &lightDir, 
-                                           DeviceSphere* spheres, int numSpheres) {
+                                             DeviceSphere* spheres, int numSpheres) {
     Ray shadowRay(point + lightDir * 1e-4f, lightDir);
     float transparency = 1.0f;
 
@@ -231,9 +231,9 @@ __device__ float computeShadowFactor_device(const Vec3d &point, const Vec3d &lig
 }
 
 __device__ bool projectToScreen_device(const Vec3d &point, const Vec3d &eyePos,
-                                       const Vec3d &viewDir, const Vec3d &upDir,
-                                       float vfov, int width, int height,
-                                       int &screenX, int &screenY) {
+                                     const Vec3d &viewDir, const Vec3d &upDir,
+                                     float vfov, int width, int height,
+                                     int &screenX, int &screenY) {
     Vec3d right = viewDir.cross(upDir).norm();
     Vec3d up = right.cross(viewDir).norm();
     
@@ -255,11 +255,14 @@ __device__ bool projectToScreen_device(const Vec3d &point, const Vec3d &eyePos,
     return (screenX >= 0 && screenX < width && screenY >= 0 && screenY < height);
 }
 
+// Updated signature: inputBuffer is const
 __device__ Color getSSRColor_device(const Vec3d &reflectDir, const Vec3d &hitPoint,
-                                    Color* imageBuffer, int width, int height,
+                                    const Color* inputBuffer, int width, int height,
                                     const Vec3d &eyePos, const Vec3d &viewDir, 
                                     const Vec3d &upDir, float vfov,
                                     const Color &bkgcolor) {
+    if (inputBuffer == nullptr) return bkgcolor;
+
     const int MAX_STEPS = 50;
     const float STEP_SIZE = 0.1f;
     
@@ -272,7 +275,7 @@ __device__ Color getSSRColor_device(const Vec3d &reflectDir, const Vec3d &hitPoi
         if (projectToScreen_device(currentPos, eyePos, viewDir, upDir, vfov, 
                                    width, height, screenX, screenY)) {
             if (screenX >= 0 && screenX < width && screenY >= 0 && screenY < height) {
-                return imageBuffer[screenY * width + screenX];
+                return inputBuffer[screenY * width + screenX];
             }
         } else {
             break;
@@ -320,7 +323,7 @@ __device__ Color shade_device(const Vec3d &point, const Vec3d &rayDir, const Vec
     return ambient + totalDiffuse + totalSpecular;
 }
 
-__global__ void raytrace_kernel(Color* output, Color* imageBuffer,
+__global__ void raytrace_kernel(Color* output, const Color* ssrSourceBuffer,
                                 DeviceSphere* spheres, int numSpheres,
                                 DeviceTriangle* triangles, int numTriangles,
                                 DeviceLight* lights, int numLights,
@@ -328,7 +331,7 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
                                 Vec3d eyePos, Vec3d viewDir, Vec3d upDir, float vfov,
                                 Vec3d ul, Vec3d delta_h, Vec3d delta_v,
                                 int width, int height, Color bkgcolor,
-                                bool useSSR, bool writeDepth) {
+                                bool useSSR) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     
@@ -342,7 +345,7 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
     Ray ray(eyePos, rayDir);
     
     // Find closest intersection
-    float t_min = 1e30f; // Use large constant instead of FLT_MAX
+    float t_min = 1e30f;
     int hitType = -1; // -1: none, 0: sphere, 1: triangle
     int hitIndex = -1;
     Vec3d hitNormal;
@@ -376,7 +379,6 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
         }
     }
     
-    // Default to background
     Color finalColor = bkgcolor;
     
     if (hitType >= 0) {
@@ -397,16 +399,19 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
         
         // Local shading
         Color localColor = shade_device(hitPoint, rayDir, hitNormal, texCoord, material,
-                                       lights, numLights, spheres, numSpheres,
-                                       texture, hasTexture, bkgcolor);
+                                        lights, numLights, spheres, numSpheres,
+                                        texture, hasTexture, bkgcolor);
+        
         float Fr = 0.0f;
-        // Reflection
         Color reflectedColor(0, 0, 0);
-        if (material.ks > 0.0f && useSSR && depthBuffer != nullptr) {
+
+        // Reflection (SSR)
+        // Note: ssrSourceBuffer is the image from the previous pass
+        if (material.ks > 0.0f && useSSR && ssrSourceBuffer != nullptr) {
             Vec3d reflectDir = (rayDir - hitNormal * 2.0f * (rayDir.dot(hitNormal))).norm();
-            reflectedColor = getSSRColor_device(reflectDir, hitPoint, imageBuffer, depthBuffer,
-                                               width, height, eyePos, viewDir, upDir, 
-                                               vfov, bkgcolor);
+            reflectedColor = getSSRColor_device(reflectDir, hitPoint, ssrSourceBuffer,
+                                                width, height, eyePos, viewDir, upDir, 
+                                                vfov, bkgcolor);
         }
         
         // Simple refraction (single level)
@@ -414,7 +419,6 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
         if (material.alpha < 1.0f) {
             Vec3d refractDir;
             if (refract_device(rayDir, hitNormal, material.ior, refractDir)) {
-                // Simple refraction without full recursion
                 refractedColor = bkgcolor; // Simplified
             }
         }
@@ -426,29 +430,6 @@ __global__ void raytrace_kernel(Color* output, Color* imageBuffer,
     }
     
     output[idx] = finalColor;
-}
-
-__global__ void ssr_kernel(Color* output, Color* imageBuffer,
-                                DeviceSphere* spheres, int numSpheres,
-                                DeviceTriangle* triangles, int numTriangles,
-                                DeviceLight* lights, int numLights,
-                                DeviceTexture* textures,
-                                Vec3d eyePos, Vec3d viewDir, Vec3d upDir, float vfov,
-                                Vec3d ul, Vec3d delta_h, Vec3d delta_v,
-                                int width, int height, Color bkgcolor,
-                                int maxDepth, int* ssr_indices, int* numActiveRays,
-                                DeviceStorage* storage) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= *numActiveRays) return;
-
-    int idx = ssr_indices[i];
-
-    // run SSR
-    Color reflectedColor = getSSRColor_device(storage[idx].reflectDir, storage[idx].hitPoint, imageBuffer, 
-                                               width, height, eyePos, viewDir, upDir, 
-                                               vfov, bkgcolor);
-
-    output[idx] = imageBuffer[idx] + reflectedColor*storage[idx].Fr;
 }
 
 // Host code
@@ -482,7 +463,6 @@ int main(int argc, char* argv[]) {
 
     // Allocate host memory
     Color* h_output = new Color[width * height];
-    Color* h_imageBuffer = new Color[width * height];
     
     // Prepare device data
     std::vector<DeviceSphere> h_spheres;
@@ -500,9 +480,8 @@ int main(int argc, char* argv[]) {
             ds.hasTexture = sphere->hasTexture;
             h_spheres.push_back(ds);
             
-            // Handle texture (simplified - would need proper GPU texture upload)
             DeviceTexture dt;
-            dt.pixels = nullptr;
+            dt.pixels = nullptr; // Note: Requires deep copy logic for real textures
             dt.width = 0;
             dt.height = 0;
             h_textures.push_back(dt);
@@ -549,26 +528,35 @@ int main(int argc, char* argv[]) {
 
     // Allocate device memory
     Color *d_output, *d_imageBuffer;
-    float *d_depthBuffer;
     DeviceSphere* d_spheres = nullptr;
     DeviceTriangle* d_triangles = nullptr;
     DeviceLight* d_lights = nullptr;
     DeviceTexture* d_textures = nullptr;
+
     CUDA_CHECK(cudaMalloc(&d_output, width * height * sizeof(Color)));
     CUDA_CHECK(cudaMalloc(&d_imageBuffer, width * height * sizeof(Color)));
-    CUDA_CHECK(cudaMalloc(&d_depthBuffer, width * height * sizeof(float)));
+    
+    // Allocate geometry buffers BEFORE copying
+    if (!h_spheres.empty())
+        CUDA_CHECK(cudaMalloc(&d_spheres, h_spheres.size() * sizeof(DeviceSphere)));
+    if (!h_triangles.empty())
+        CUDA_CHECK(cudaMalloc(&d_triangles, h_triangles.size() * sizeof(DeviceTriangle)));
+    if (!h_lights.empty())
+        CUDA_CHECK(cudaMalloc(&d_lights, h_lights.size() * sizeof(DeviceLight)));
+    if (!h_textures.empty())
+        CUDA_CHECK(cudaMalloc(&d_textures, h_textures.size() * sizeof(DeviceTexture)));
     
     // Copy data to device
-    CUDA_CHECK(cudaMemcpy(d_spheres, h_spheres.data(), 
-                         h_spheres.size() * sizeof(DeviceSphere), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_triangles, h_triangles.data(), 
-                         h_triangles.size() * sizeof(DeviceTriangle), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_lights, h_lights.data(), 
-                         h_lights.size() * sizeof(DeviceLight), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_textures, h_textures.data(), 
-                         h_textures.size() * sizeof(DeviceTexture), cudaMemcpyHostToDevice));
+    if (!h_spheres.empty())
+        CUDA_CHECK(cudaMemcpy(d_spheres, h_spheres.data(), h_spheres.size() * sizeof(DeviceSphere), cudaMemcpyHostToDevice));
+    if (!h_triangles.empty())
+        CUDA_CHECK(cudaMemcpy(d_triangles, h_triangles.data(), h_triangles.size() * sizeof(DeviceTriangle), cudaMemcpyHostToDevice));
+    if (!h_lights.empty())
+        CUDA_CHECK(cudaMemcpy(d_lights, h_lights.data(), h_lights.size() * sizeof(DeviceLight), cudaMemcpyHostToDevice));
+    if (!h_textures.empty())
+        CUDA_CHECK(cudaMemcpy(d_textures, h_textures.data(), h_textures.size() * sizeof(DeviceTexture), cudaMemcpyHostToDevice));
 
-        // Launch configuration
+    // Launch configuration
     dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
     dim3 gridSize((width + blockSize.x - 1) / blockSize.x,
                   (height + blockSize.y - 1) / blockSize.y);
@@ -576,31 +564,16 @@ int main(int argc, char* argv[]) {
     std::cout << "Rendering " << width << "x" << height
               << " image on GPU (2 passes with SSR)..." << std::endl;
 
-    // ---- GPU timing (similar style as raycast_cuda.cu) ----
     cudaEvent_t start, stop;
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
     CUDA_CHECK(cudaEventRecord(start));
 
+    // Pass 1: Base Rendering
+    // Output goes to d_imageBuffer. SSR is disabled (nullptr passed as source).
     std::cout << "Pass 1: Rendering base image..." << std::endl;
     raytrace_kernel<<<gridSize, blockSize>>>(
-        d_imageBuffer, nullptr,
-        d_spheres, h_spheres.size(),
-        d_triangles, h_triangles.size(),
-        d_lights, h_lights.size(),
-        d_textures,
-        scene.camera.eye, viewDir, scene.camera.upDir, scene.camera.vfov_rad(),
-        ul, delta_h, delta_v,
-        width, height, scene.bkgcolor,
-        /*useSSR=*/false, /*maxDepth=*/10, d_ssr_indices, d_ssr_count, d_storage
-    );
-
-    // Get back the number of active rays to optimize the grid size of the SSR
-    
-
-    std::cout << "Pass 2: Rendering with SSR depth..." << std::endl;
-    raytrace_kernel<<<gridSize, blockSize>>>(
-        d_output, d_imageBuffer, d_depthBuffer,
+        d_imageBuffer, nullptr, // Output to buffer, no input for SSR
         d_spheres, (int)h_spheres.size(),
         d_triangles, (int)h_triangles.size(),
         d_lights, (int)h_lights.size(),
@@ -608,9 +581,27 @@ int main(int argc, char* argv[]) {
         scene.camera.eye, viewDir, scene.camera.upDir, scene.camera.vfov_rad(),
         ul, delta_h, delta_v,
         width, height, scene.bkgcolor,
-        true, false
+        false // useSSR
     );
+    CUDA_CHECK(cudaGetLastError());
+    CUDA_CHECK(cudaDeviceSynchronize());
 
+    // Pass 2: Final Composition
+    // Output goes to d_output. Input is d_imageBuffer (result of Pass 1) for reflections.
+    std::cout << "Pass 2: Rendering with SSR..." << std::endl;
+    raytrace_kernel<<<gridSize, blockSize>>>(
+        d_output, d_imageBuffer, // Output to final, Input from Pass 1
+        d_spheres, (int)h_spheres.size(),
+        d_triangles, (int)h_triangles.size(),
+        d_lights, (int)h_lights.size(),
+        d_textures,
+        scene.camera.eye, viewDir, scene.camera.upDir, scene.camera.vfov_rad(),
+        ul, delta_h, delta_v,
+        width, height, scene.bkgcolor,
+        true // useSSR
+    );
+    
+    CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaEventRecord(stop));
     CUDA_CHECK(cudaEventSynchronize(stop));
 
@@ -622,12 +613,9 @@ int main(int argc, char* argv[]) {
     CUDA_CHECK(cudaEventDestroy(start));
     CUDA_CHECK(cudaEventDestroy(stop));
 
-    CUDA_CHECK(cudaGetLastError());
-
-
     // Copy result back to host
     CUDA_CHECK(cudaMemcpy(h_output, d_output, width * height * sizeof(Color), 
-                         cudaMemcpyDeviceToHost));
+                          cudaMemcpyDeviceToHost));
 
     // Write output
     std::string perspective_filename = basename + "_perspective.ppm";
@@ -637,9 +625,9 @@ int main(int argc, char* argv[]) {
     for (int y = 0; y < height; ++y) {
         for (int x = 0; x < width; ++x) {
             Color c = h_output[y * width + x];
-            output << (int)(c.r * 255) << " " 
-                   << (int)(c.g * 255) << " " 
-                   << (int)(c.b * 255) << " ";
+            output << (int)(clamp_cuda(c.r, 0.0f, 1.0f) * 255) << " " 
+                   << (int)(clamp_cuda(c.g, 0.0f, 1.0f) * 255) << " " 
+                   << (int)(clamp_cuda(c.b, 0.0f, 1.0f) * 255) << " ";
         }
         output << "\n";
     }
@@ -647,10 +635,8 @@ int main(int argc, char* argv[]) {
 
     // Cleanup
     delete[] h_output;
-    delete[] h_imageBuffer;
     CUDA_CHECK(cudaFree(d_output));
     CUDA_CHECK(cudaFree(d_imageBuffer));
-    CUDA_CHECK(cudaFree(d_depthBuffer));
     if (d_spheres) CUDA_CHECK(cudaFree(d_spheres));
     if (d_triangles) CUDA_CHECK(cudaFree(d_triangles));
     if (d_lights) CUDA_CHECK(cudaFree(d_lights));
