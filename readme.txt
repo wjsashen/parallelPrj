@@ -1,12 +1,25 @@
 readme.txt
 
-compile with Makefile
+.txt has object format input, .in has vertices format input.
+Result is .ppm format, if you may use Vscode extension to check, or can open it under Linux.
 
-./raycast_xxx example1.txt/.in
+Compile with Makefile: make
 
-for gpu code needing rtx:
-Compile: nvcc -O3 -lineinfo -gencode arch=compute_90,code=sm_120 raycast_ssr_cuda_bvh_binned.cu parse.cpp -o app_v1 -std=c++14 -D_USE_MATH_DEFINES
-I use x64 native under win11, delete this in parse.cpp when using cpp14
+Run with:
+./raycast_xxx example1.txt
+
+the baseline gpu code is raycast_ssr_cuda,
+./raycast_ssr_cuda example1.txt
+
+or run with ./raycast_ssr_cuda_bvh_sharedMem  ./raycast_ssr_cuda_bvh_binned
+for example:
+./raycast_ssr_cuda_bvh_binned dragon.in
+
+the cpu code is raytracer1d.
+
+
+If under windows with nvcc set up, compile: nvcc -O3 -lineinfo -gencode arch=compute_90,code=sm_120 raycast_ssr_cuda_bvh_binned.cu parse.cpp -o app_v1 -std=c++14 -D_USE_MATH_DEFINES
+delete this in parse.cpp when using cpp14
 #if __cplusplus <= 201103L
 namespace std {
     template <typename T, typename... Args>
