@@ -20,4 +20,9 @@ Profile with ncu/nsys command: ncu --set full --target-processes all -o v1_repor
 nv-nsight-cu-cli ./raycast_ssr_cuda_bvh dragon.in
 
 Profile with Python tool:
+$ ./profiling_tool
+This will generate executable profiling_results.csv for a simple example input at increasing size
+
+$ ./profiling_tool <filename> <filename> <...>
+This will profile all executables w/ specific set of files, output to profiling_results.csv
 
